@@ -7,8 +7,11 @@ import os
 import hashlib
 import threading
 
-startUrl = "http://v4yi6bbu.itxiaoka.cn:666/qq.php?t=161362787936029&gs=tar18&_wv=vmsl&alert%28%29id=1807139605#alert%28%29"
+startUrl = "http://obombu21.19h5ic.cn:666/qq.php?t=161421761366353&gs=tar18&_wv=vmsl&alert%28%29id=1807139605#alert%28%29"
 session = requests.Session()
+
+lock = threading.RLock()
+imglock = threading.RLock()
 
 
 def getClickJumpUrl(text: str):
@@ -50,31 +53,62 @@ def getSrc(element):
     return pq(element).attr("src")
 
 
+imgCaches: list = []
+
+
 def download(src: str, filePath: str):
-    img = send(src)
-    fileName = hashlib.md5(img.content).hexdigest()
+    # img = send(src)
+    fileName = hashlib.md5(src.encode("utf-8")).hexdigest()
     filetype = "png"
-    if not os.path.exists("%s/%s.%s" % (filePath, fileName, filetype)):
-        with open("%s/%s.%s" % (filePath, fileName, filetype), "wb+") as imgs:
-            imgs.write(img.content)
-    # print(src)
+    real = "%s/%s.%s" % (filePath, fileName, filetype)
+
+    data = {
+        "local": real,
+        "url": src,
+        "title": filePath
+    }
+    # imglock.acquire()
+    imgCaches.append(data)
+    # imglock.release()
+    # if not os.path.exists("%s/%s.%s" % (filePath, fileName, filetype)):
+    # lock.acquire()
+    # ll = open(real, "wb+")
+    # ll.write(img.content)
+    # lock.release()
 
 
 batch = 64
+
+cacheing: list = []
 
 
 def saveImgAndFolder(url: str):
     # 获取三条实际地址链接
     # print(url)
+    global startUrl
 
     a1 = send(url)
+
+    lock.acquire()
+    process = True
+    for id in cacheing:
+        if id == url:
+            print("发现已在队列中处理该页面,跳过 %s " % url)
+            process = False
+    if process:
+        cacheing.append(url)
+    lock.release()
+
+    # 同步锁不缓存多个对象
+    if not process:
+        return False
 
     a2 = pq(a1.text)
     pwd = a2("input[name='pwd']")
     pwd = pwd.attr('value')
     # print(pwd)
 
-    if pwd:
+    if pwd is None:
         pwd = a2("meta[name='description']")
         pwd = pq(pwd).attr('content')
         a3 = pwd.split("访问密码：")
@@ -84,28 +118,33 @@ def saveImgAndFolder(url: str):
         else:
             return False
 
-    if pwd == None:
+    if pwd is None:
         return False
     a1 = send(url, {
         "Cookie": 'pwd=' + pwd
     })
     a2 = pq(a1.text)
     pagetitle = a2("title").text()
-
+    if pagetitle == '':
+        pagetitle = "无标题帖子统一目录"
     filePath = "./imgs/%s" % pagetitle
 
     if not os.path.exists(filePath):
         os.mkdir(filePath)
 
     a2 = a2('.note-body > .note-content > .note-body > .note-content')
+    home = a2
     boards = a2
     a4 = a2(".note-content > div:first-child")
     if a4.length == 0:
         a4 = a2(".note-content > p:first-child")
     a2 = a4
-    content = a2.text()
+    content = home.text()
 
     a5 = a2('img')
+
+    if len(a5) <= 0:
+        a5 = home("img")
 
     videos = boards("video source")
 
@@ -127,9 +166,7 @@ def saveImgAndFolder(url: str):
 
     threads: list = []
 
-    lens = 0
     for a3 in elements:
-        lens += 1
         src = getSrc(a3)
         thread = threading.Thread(target=download, args=(
             src, filePath
@@ -141,7 +178,7 @@ def saveImgAndFolder(url: str):
             thread.join()
             threads.remove(thread)
             # print("结束一个了")
-        print("[%s] cache progress : %s/%s" % (pagetitle, lens, a2.length))
+        print("[%s] cache progress : %s" % (pagetitle, a2.length))
     print("[%s] cache success." % pagetitle)
     return a2.length > 0
 
@@ -161,21 +198,32 @@ def parseUrl(url):
 def mainHandle():
     global cacheContent
     global cacheFile
-    mainpage = send(startUrl)
-    random = pq(mainpage.text)('.tab-pane.active > .media')
-    threads: list = []
-    for a1 in random.items():
-        a1_click = a1.attr("onclick")
-        a1_click = getClickJumpUrl(a1_click)
-        if cacheContent.find(a1_click) == -1:
-            t = threading.Thread(target=parseUrl, args=(a1_click,))
-            threads.append(t)
-            t.start()
 
-    while len(threads) > 0:
-        t = threads[0]
-        t.join()
-        threads.remove(t)
+    threads: list = []
+    localUrl = startUrl
+
+    count = 1000
+
+    while count > 0:
+        mainpage = send(localUrl)
+        random = pq(mainpage.text)('.tab-pane.active > .media')
+        for a1 in random.items():
+            a1_click = a1.attr("onclick")
+            a1_click = getClickJumpUrl(a1_click)
+            if cacheContent.find(a1_click) == -1:
+                t = threading.Thread(target=parseUrl, args=(a1_click,))
+                threads.append(t)
+                t.start()
+                # t.join()
+            else:
+                localUrl = a1_click
+
+            while len(threads) > 0:
+                t = threads.pop()
+                t.join()
+                # threads.remove(t)
+        # count -= 1
+        # sleep(5)
 
 
 cacheFile: BufferedRandom = None
@@ -186,20 +234,70 @@ def init():
     global cacheFile
     global cacheContent
     # load config
-    cacheFile = open('cached.txt', 'rt+')
+    CACHE = './cached.txt'
+    STORE = "./imgs"
+    if not os.path.isfile(CACHE):
+        fd = open(CACHE, mode="w", encoding="utf-8")
+        fd.close()
+    cacheFile = open(CACHE, 'rt+')
     cacheContent = cacheFile.read()
     print("读入配置项完成。")
+
+    if not os.path.exists(STORE):
+        os.mkdir(STORE)
+
+
+def downcore(img):
+    bin = send(img['url'])
+    ll = open(img['local'], "wb+")
+    ll.write(bin.content)
+    ll.flush()
+
+
+downSize = 32
+
+
+def imgServer():
+    threads: list = []
+    while True:
+        if len(imgCaches) == 0:
+            sleep(1)
+            continue
+        # imglock.acquire()
+        img = imgCaches.pop()
+        # imglock.release()
+
+        t = threading.Thread(target=downcore, args=(img,))
+        t.start()
+        threads.append(t)
+
+        print("剩余: %s %s | %s" % (len(imgCaches), img['title'], img['local'],))
+
+        if len(threads) >= downSize:
+            t = threads[0]
+            t.join()
+            threads.remove(t)
 
 
 if __name__ == '__main__':
     init()
+
+    down = threading.Thread(target=imgServer)
+    down.start()
+
     threads: list = []
-    for i in range(1, 1000):
+    for i in range(1, 32):
         t = threading.Thread(target=mainHandle)
-        threads.append(t)
         t.start()
-        while len(threads) >= 32:
-            t = threads[0]
-            t.join()
-            threads.remove(t)
+        threads.append(t)
+
+    while True:
+        t = threads[0]
+        t.join()
+        print(t.name + " Final.")
+        threads.remove(t)
+        if len(threads) == 0:
+            break
+
+    down.join()
     print("task finally.")
