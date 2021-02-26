@@ -68,7 +68,7 @@ def download(src: str, filePath: str):
         "title": filePath
     }
     imgCaches.append(data)
-    print("缓存队列投入数据 %s" % data)
+    log("缓存队列投入数据 %s" % data)
 
 
 batch = 64
@@ -87,7 +87,7 @@ def saveImgAndFolder(url: str):
     process = True
     for id in cacheing:
         if id == url:
-            print("发现已在队列中处理该页面,跳过 %s " % url)
+            log("发现已在队列中处理该页面,跳过 %s " % url)
             process = False
     if process:
         cacheing.append(url)
@@ -172,8 +172,8 @@ def saveImgAndFolder(url: str):
             thread.join()
             threads.remove(thread)
             # print("结束一个了")
-        print("[%s] cache progress : %s" % (pagetitle, a2.length))
-    print("[%s] cache success." % pagetitle)
+        log("[%s] cache progress : %s" % (pagetitle, a2.length))
+    log("[%s] cache success." % pagetitle)
     return a2.length > 0
 
 
@@ -208,6 +208,9 @@ def mainHandle():
                 t.start()
                 # t.join()
             else:
+                global frezz
+                frezz += 1
+                # log("url %s 已缓存,跳过." % a1_click)
                 localUrl = a1_click
 
             while len(threads) > 0:
@@ -215,6 +218,7 @@ def mainHandle():
                 t.join()
 
 
+frezz = 0
 cacheFile: BufferedRandom = None
 cacheContent = ""
 
@@ -243,25 +247,39 @@ def downcore(img):
     ll.flush()
 
 
+def log(s):
+    print(s, end="\r")
+
+
 downSize = 32
 
 
 def imgServer():
     threads: list = []
+    log("开始启动下载服务。")
+    count = 0
     while True:
+        strs = "-"
+        if count > 4:
+            count = 1
+        if count == 1:
+            strs = "\\"
+        if count == 2:
+            strs = "|"
+        if count == 3:
+            strs = "/"
+        if count == 4:
+            strs = "-"
+        log("[%s] 下载图片队列数量: %s，跳过重复或已缓存的Url: %s" % (strs, len(imgCaches), frezz))
+        count += 1
         if len(imgCaches) == 0:
-            sleep(1)
+            sleep(.5)
             continue
-        # imglock.acquire()
         img = imgCaches.pop()
-        # imglock.release()
-
         t = threading.Thread(target=downcore, args=(img,))
         t.start()
         threads.append(t)
-
-        print("剩余: %s %s | %s" % (len(imgCaches), img['title'], img['local'],))
-
+        log("剩余: %s | %s" % (len(imgCaches), img['local'],))
         if len(threads) >= downSize:
             t = threads[0]
             t.join()
@@ -270,10 +288,8 @@ def imgServer():
 
 if __name__ == '__main__':
     init()
-
     down = threading.Thread(target=imgServer)
     down.start()
-
     threads: list = []
     for i in range(1, 32):
         t = threading.Thread(target=mainHandle)
