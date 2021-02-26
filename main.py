@@ -155,7 +155,7 @@ def saveImgAndFolder(url: str):
         src = getSrc(vp)
         mp4 += src + "\n"
 
-    with open("%s/link.txt" % filePath, "wt") as info:
+    with open("%s/link.txt" % filePath, "wt", encoding="utf-8") as info:
         info.write(url + "\npwd:" + pwd + "\n" + content + "\n" + mp4)
 
     threads: list = []
