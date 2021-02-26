@@ -7,7 +7,7 @@ import os
 import hashlib
 import threading
 
-startUrl = "http://obombu21.19h5ic.cn:666/qq.php?t=161421761366353&gs=tar18&_wv=vmsl&alert%28%29id=1807139605#alert%28%29"
+startUrl = "http://t.cn/A65CNYeA"
 session = requests.Session()
 
 lock = threading.RLock()
@@ -28,7 +28,7 @@ def send(u: str, head: map = None):
         ret = session.get(url=u, headers=head, allow_redirects=False)
         if ret.status_code == 302:
             location = ret.headers['Location']
-            print("302 found %s" % location)
+            # print("302 found %s" % location)
 
             if location.find('?backUrl=') != -1:
                 location = location.split("?backUrl=")[1]
@@ -67,14 +67,8 @@ def download(src: str, filePath: str):
         "url": src,
         "title": filePath
     }
-    # imglock.acquire()
     imgCaches.append(data)
-    # imglock.release()
-    # if not os.path.exists("%s/%s.%s" % (filePath, fileName, filetype)):
-    # lock.acquire()
-    # ll = open(real, "wb+")
-    # ll.write(img.content)
-    # lock.release()
+    print("缓存队列投入数据 %s" % data)
 
 
 batch = 64
@@ -202,9 +196,7 @@ def mainHandle():
     threads: list = []
     localUrl = startUrl
 
-    count = 1000
-
-    while count > 0:
+    while True:
         mainpage = send(localUrl)
         random = pq(mainpage.text)('.tab-pane.active > .media')
         for a1 in random.items():
@@ -221,9 +213,6 @@ def mainHandle():
             while len(threads) > 0:
                 t = threads.pop()
                 t.join()
-                # threads.remove(t)
-        # count -= 1
-        # sleep(5)
 
 
 cacheFile: BufferedRandom = None
